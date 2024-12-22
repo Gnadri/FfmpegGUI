@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import webbrowser
 import uuid
@@ -9,372 +10,689 @@ from threading import Timer
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.secret_key = "your_secret_key_here"
 
-# Directory for temporary uploads
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# We'll store uploaded files in this "temp" folder for each job
+# and then delete it after each job finishes.
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "temp")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Default directory for output files
-DEFAULT_OUTPUT_DIR = r"E:\My Applications\FFmpeg Compressor\Compressed videos"
-DEFAULT_OUTPUT_FILENAME = "output.mp4"
-
-# A dictionary to store progress information keyed by job_id
-# Structure: jobs[job_id] = {
-#     "status": "running"|"done"|"error",
-#     "progress": 0 to 100,
-#     "message": "Success or error message"
-# }
+# Keep track of ffmpeg jobs by job_id
 jobs = {}
 
-HTML_TEMPLATE = """
+# Default output filename if user leaves it blank
+DEFAULT_OUTPUT_FILENAME = "output.mp4"
+
+HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html>
 <head>
     <title>FFmpeg Video Compressor</title>
-<style>
-    body {
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        margin: 0;
-        padding: 0;
-        background: linear-gradient(to bottom right, #111, #333);
-        color: #eee;
-        overflow-x: hidden;
-    }
-    .header {
-        background: rgba(255,255,255,0.05);
-        padding: 1em;
-        text-align: center;
-        border-bottom: 1px solid #444;
-    }
-    .container {
-        background: #1f1f1f;
-        padding: 2em;
-        border-radius: 10px;
-        max-width: 700px;
-        margin: 2em auto;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        position: relative;
-    }
-    h1, h2, h3 {
-        text-align: center;
-        margin-bottom: 1.5em;
-        color: #fff;
-    }
-    label {
-        display: block;
-        margin: 1em 0 0.5em;
-        font-weight: bold;
-        font-size: 1.1em;
-        color: #ccc;
-    }
-    input[type=text], input[type=file] {
-        width: 100%;
-        padding: 0.7em;
-        box-sizing: border-box;
-        border: 1px solid #444;
-        border-radius: 4px;
-        font-size: 1em;
-        background: #2e2e2e;
-        color: #eee;
-    }
-    button {
-        margin-top: 1.5em;
-        padding: 0.7em 1.5em;
-        background: #444;
-        color: #eee;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 1em;
-        transition: background 0.3s;
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
-    }
-    button:hover {
-        background: #555;
-    }
-    .note {
-        font-size: 0.9em;
-        color: #aaa;
-        margin-top: 0.5em;
-    }
-    .section {
-        background: #2a2a2a;
-        padding: 1em;
-        border-radius: 5px;
-        margin-bottom: 1em;
-    }
-    .message {
-        margin-top: 2em;
-        background: #2a2a2a;
-        padding: 1em;
-        border-radius: 4px;
-        font-size: 1.05em;
-        text-align: center;
-        color: #ddd;
-    }
-
-    .progress-container {
-        width: 100%;
-        background: #444;
-        border-radius: 25px;
-        overflow: hidden;
-        margin-top: 1em;
-    }
-
-    .progress-bar {
-        height: 20px;
-        width: 0%;
-        background-color: #eee;
-        transition: width 0.3s ease;
-    }
-
-    .loading-text {
-        font-size: 1.1em;
-        color: #ccc;
-        margin-top: 0.5em;
-        text-align: center;
-    }
-
-    #progressSection {
-        display: none;
-        margin-top: 2em;
-    }
-</style>
-
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; 
+            padding: 0;
+            background: linear-gradient(to bottom right, #111, #333);
+            color: #eee;
+        }
+        .header {
+            background: rgba(255,255,255,0.05);
+            padding: 1em;
+            text-align: center;
+            border-bottom: 1px solid #444;
+        }
+        .tabs {
+            display: flex;
+            justify-content: center;
+            background: #222;
+            margin-bottom: 1em;
+        }
+        .tabs button {
+            background: none;
+            border: none;
+            padding: 1em;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 1em;
+            transition: color 0.3s;
+        }
+        .tabs button:hover {
+            color: #fff;
+        }
+        .tabs button.active {
+            color: #fff;
+            border-bottom: 2px solid #fff;
+        }
+        .tabcontent {
+            display: none;
+            max-width: 700px;
+            background: #1f1f1f;
+            padding: 2em;
+            border-radius: 10px;
+            margin: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            margin-bottom: 3em;
+        }
+        h1 {
+            margin: 0;
+        }
+        .section {
+            background: #2a2a2a;
+            padding: 1em;
+            border-radius: 5px;
+            margin-bottom: 1.5em;
+        }
+        .section h3 {
+            margin-top: 0;
+            margin-bottom: 0.8em;
+            color: #fff;
+            font-size: 1.2em;
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin: 1em 0 0.5em;
+            font-weight: bold;
+            font-size: 1.05em;
+            color: #ccc;
+        }
+        input[type=text],
+        input[type=file],
+        select {
+            width: 100%;
+            padding: 0.7em;
+            box-sizing: border-box;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #2e2e2e;
+            color: #eee;
+            font-size: 1em;
+        }
+        button.submit-btn,
+        button#estimateBtn {
+            margin-top: 1.5em;
+            padding: 0.7em 1.5em;
+            background: #444;
+            color: #eee;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+            display: inline-block;
+            margin-right: 1em;
+        }
+        button.submit-btn:hover,
+        button#estimateBtn:hover {
+            background: #555;
+        }
+        .progress-container {
+            width: 100%;
+            background: #444;
+            border-radius: 25px;
+            overflow: hidden;
+            margin-top: 1em;
+        }
+        .progress-bar {
+            height: 20px;
+            width: 0%;
+            background-color: #eee;
+            transition: width 0.3s ease;
+        }
+        .loading-text {
+            font-size: 1.1em;
+            color: #ccc;
+            margin-top: 0.5em;
+            text-align: center;
+        }
+        #progressSection {
+            display: none;
+            margin-top: 2em;
+        }
+        .message {
+            margin-top: 2em;
+            background: #2a2a2a;
+            padding: 1em;
+            border-radius: 4px;
+            font-size: 1.05em;
+            text-align: center;
+            color: #ddd;
+            display: none;
+        }
+        .note {
+            font-size: 0.9em;
+            color: #aaa;
+            margin-top: 0.5em;
+        }
+        #estimatedSize {
+            margin-top: 1em;
+            text-align: center;
+            font-size: 1em;
+            color: #ccc;
+            display: none;
+        }
+    </style>
 </head>
 <body>
-    <div class="header">
-        <h1>FFmpeg Video Compression</h1>
-    </div>
-    <div class="container" id="mainContainer">
-        <form id="compressForm" method="POST" action="/" enctype="multipart/form-data">
-            <div class="section">
-                <label for="input_file">Select Input File:</label>
-                <input type="file" id="input_file" name="input_file" required>
-                <div class="note">Choose a video file from your computer.</div>
-            </div>
 
-            <div class="section">
-                <label for="bitrate">Bitrate (e.g. 1000k):</label>
-                <input type="text" id="bitrate" name="bitrate" placeholder="e.g. 1000k" required>
-                <div class="note">Specify the video bitrate to compress to.</div>
-            </div>
+<div class="header">
+    <h1>FFmpeg Video Compression</h1>
+</div>
 
-            <div class="section">
-                <h3>Output Settings</h3>
-                <label for="output_dir">Output Directory:</label>
-                <input type="text" id="output_dir" name="output_dir" value="{{ default_output_dir }}">
-                <div class="note">By default, files go to the above folder.</div>
+<div class="tabs">
+    <button class="tablinks active" onclick="openTab(event, 'compressionTab')">Compression</button>
+    <button class="tablinks" onclick="openTab(event, 'convertTab')">Convert Format</button>
+</div>
 
-                <label for="output_filename">Output Filename:</label>
-                <input type="text" id="output_filename" name="output_filename" value="{{ default_output_filename }}">
-                <div class="note">Specify the name for the compressed file.</div>
-
-                <label for="output_file">Or Custom Full Output Path:</label>
-                <input type="text" id="output_file" name="output_file" placeholder="e.g. D:\\another_folder\\my_compressed_video.mp4">
-               
-            </div>
-
-            <button type="submit">Compress</button>
-        </form>
-
-        <div id="progressSection">
-            <div class="loading-text">Compressing video, please wait...</div>
-            <div class="progress-container">
-                <div class="progress-bar" id="progressBar"></div>
-            </div>
+<!-- COMPRESSION TAB -->
+<div id="compressionTab" class="tabcontent" style="display:block;">
+    <form id="compressForm">
+        <div class="section">
+            <label for="input_file_compress">Select Input File:</label>
+            <input type="file" id="input_file_compress" required>
+            <div class="note">Choose a video file from your computer.</div>
         </div>
 
-        <div class="message" id="resultMessage" style="display:none;"></div>
+        <div class="section">
+            <label for="bitrate">Bitrate (e.g. 1000k):</label>
+            <input type="text" id="bitrate" placeholder="e.g. 1000k" required>
+            <div class="note">Specify the video bitrate to compress to.</div>
+        </div>
+
+        <div class="section">
+            <h3>Output Settings</h3>
+            <label for="output_dir_compress">Output Directory:</label>
+            <input type="text" id="output_dir_compress" placeholder="e.g. C:\\Users\\Me\\Videos" required>
+            <div class="note">By default, files go to the above folder.</div>
+
+            <label for="output_filename">Output Filename:</label>
+            <input type="text" id="output_filename" placeholder="If blank or no extension, will use .mp4">
+            <div class="note">If blank or no extension, we'll default to .mp4</div>
+        </div>
+
+        <div class="section" style="background: none; box-shadow: none; margin-bottom: 0;">
+            <button type="button" id="estimateBtn">Estimate Size</button>
+            <button type="submit" class="submit-btn">Compress</button>
+        </div>
+    </form>
+
+    <div id="estimatedSize"></div>
+</div>
+
+<!-- CONVERT FORMAT TAB -->
+<div id="convertTab" class="tabcontent">
+    <form id="convertForm">
+        <div class="section">
+            <label for="input_file_convert">Select Input File:</label>
+            <input type="file" id="input_file_convert" required>
+            <div class="note">Choose a video file from your computer.</div>
+        </div>
+
+        <div class="section">
+            <h3>Convert to Format</h3>
+            <label for="convert_format">Output Format:</label>
+            <select id="convert_format">
+                <option value="mp4">MP4</option>
+                <option value="webm">WEBM</option>
+                <option value="avi">AVI</option>
+                <option value="mov">MOV</option>
+                <option value="gif">GIF</option>
+            </select>
+            <div class="note">Choose a target video format. Basic ffmpeg conversion will be used.</div>
+        </div>
+
+        <div class="section">
+            <h3>Output Settings</h3>
+            <label for="output_dir_convert">Output Directory:</label>
+            <input type="text" id="output_dir_convert" placeholder="e.g. C:\\Users\\Me\\Videos" required>
+            <div class="note">By default, files go to the above folder.</div>
+
+            <label for="convert_outfilename">Output Filename :</label>
+            <input type="text" id="convert_outfilename" placeholder="If blank, we'll derive it from the original file + chosen format">
+            <div class="note">If blank or no extension, we'll guess from the input file & format.</div>
+        </div>
+
+        <div class="section" style="background: none; box-shadow: none; margin-bottom: 0;">
+            <button type="submit" class="submit-btn">Convert</button>
+        </div>
+    </form>
+</div>
+
+<div id="progressSection">
+    <div class="loading-text">Processing, please wait...</div>
+    <div class="progress-container">
+        <div class="progress-bar" id="progressBar"></div>
     </div>
+</div>
 
-    <script>
-    const form = document.getElementById('compressForm');
-    const progressSection = document.getElementById('progressSection');
-    const progressBar = document.getElementById('progressBar');
-    const resultMessage = document.getElementById('resultMessage');
-    const mainContainer = document.getElementById('mainContainer');
+<div class="message" id="finalMessage"></div>
 
-    let jobId = null;
-    let intervalId = null;
-
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
-
-        // Send form data via AJAX
-        const formData = new FormData(form);
-
-        const response = await fetch('/', {
-            method: 'POST',
-            body: formData
-        });
-
-        const data = await response.json();
-        if (data.job_id) {
-            jobId = data.job_id;
-            // Hide form, show progress bar
-            form.style.display = 'none';
-            progressSection.style.display = 'block';
-
-            // Start polling progress
-            intervalId = setInterval(checkProgress, 1000);
-        } else {
-            // If no job_id returned, show error
-            resultMessage.style.display = 'block';
-            resultMessage.textContent = data.message || "Error starting compression.";
-        }
-    });
-
-    async function checkProgress() {
-        if (!jobId) return;
-        const resp = await fetch('/progress/' + jobId);
-        const data = await resp.json();
-        if (data.status === "running") {
-            progressBar.style.width = data.progress + '%';
-        } else {
-            clearInterval(intervalId);
-            progressBar.style.width = '100%';
-            if (data.status === "done") {
-                resultMessage.style.display = 'block';
-                resultMessage.textContent = data.message;
-            } else {
-                resultMessage.style.display = 'block';
-                resultMessage.textContent = data.message || "An error occurred.";
-            }
-        }
+<script>
+function openTab(evt, tabName) {
+    const tabcontents = document.getElementsByClassName("tabcontent");
+    for (let i=0; i<tabcontents.length; i++){
+        tabcontents[i].style.display = "none";
     }
-    </script>
+    const tablinks = document.getElementsByClassName("tablinks");
+    for (let i=0; i<tablinks.length; i++){
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+    }
+    document.getElementById(tabName).style.display = "block";
+    evt.currentTarget.className += " active";
+}
+
+let currentJobId = null;
+let intervalId = null;
+
+/********************************************************
+ * POLL PROGRESS
+ ********************************************************/
+async function pollProgress() {
+    if (!currentJobId) return;
+    try {
+        const resp = await fetch('/progress/' + currentJobId);
+        const data = await resp.json();
+        // Optional debugging
+        console.log("Progress check:", data);
+
+        if (data.status === "running") {
+            document.getElementById('progressBar').style.width = data.progress + '%';
+        } else {
+            // Done or error
+            clearInterval(intervalId);
+            document.getElementById('progressBar').style.width = '100%';
+            const msgDiv = document.getElementById('finalMessage');
+            msgDiv.style.display = 'block';
+            msgDiv.textContent = data.message;
+        }
+    } catch(err) {
+        clearInterval(intervalId);
+        const msgDiv = document.getElementById('finalMessage');
+        msgDiv.style.display = 'block';
+        msgDiv.textContent = "Error polling progress: " + err;
+    }
+}
+
+/********************************************************
+ * ESTIMATE FILE SIZE (Compression Tab)
+ ********************************************************/
+document.getElementById('estimateBtn').addEventListener('click', async function() {
+    const fileInput = document.getElementById('input_file_compress');
+    const bitrate   = document.getElementById('bitrate').value.trim();
+    if(!fileInput.files[0]) {
+        alert("No file selected.");
+        return;
+    }
+    if(!bitrate) {
+        alert("Bitrate is required.");
+        return;
+    }
+    const formData = new FormData();
+    formData.append('input_file', fileInput.files[0]);
+    formData.append('bitrate', bitrate);
+
+    try {
+        const resp = await fetch('/estimate', { method: 'POST', body: formData });
+        const data = await resp.json();
+        const estDiv = document.getElementById('estimatedSize');
+        if(data.estimated_size_mb !== undefined) {
+            estDiv.textContent = "Estimated final size: " + data.estimated_size_mb.toFixed(2) + " MB";
+            estDiv.style.display = 'block';
+        } else {
+            estDiv.textContent = data.message || "Error estimating size.";
+            estDiv.style.display = 'block';
+        }
+    } catch(err) {
+        alert("Error calling /estimate: " + err);
+    }
+});
+
+/********************************************************
+ * COMPRESSION SUBMIT
+ ********************************************************/
+document.getElementById('compressForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('input_file_compress');
+    const bitrate   = document.getElementById('bitrate').value.trim();
+    const outDir    = document.getElementById('output_dir_compress').value.trim();
+    let outFilename = document.getElementById('output_filename').value.trim();
+
+    if(!fileInput.files[0]) {
+        alert("No file selected.");
+        return;
+    }
+    if(!bitrate) {
+        alert("Bitrate is required.");
+        return;
+    }
+    if(!outDir) {
+        alert("Output directory is required.");
+        return;
+    }
+    if(outFilename && !outFilename.includes(".")) {
+        outFilename += ".mp4";
+    } else if(!outFilename) {
+        outFilename = "output.mp4";
+    }
+
+    const formData = new FormData();
+    formData.append('input_file', fileInput.files[0]);
+    formData.append('bitrate', bitrate);
+    formData.append('output_dir', outDir);
+    formData.append('output_filename', outFilename);
+
+    try {
+        const resp = await fetch('/compress', { method: 'POST', body: formData });
+        const data = await resp.json();
+        console.log("Compress start response:", data);
+
+        if(data.job_id) {
+            currentJobId = data.job_id;
+            document.getElementById('progressSection').style.display = 'block';
+            intervalId = setInterval(pollProgress, 1000);
+        } else {
+            alert(data.message || "Error starting compression.");
+        }
+    } catch(err) {
+        alert("Error calling /compress: " + err);
+    }
+});
+
+/********************************************************
+ * CONVERSION SUBMIT
+ ********************************************************/
+document.getElementById('convertForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('input_file_convert');
+    const format    = document.getElementById('convert_format').value;
+    const outDir    = document.getElementById('output_dir_convert').value.trim();
+    let outFilename = document.getElementById('convert_outfilename').value.trim();
+
+    if(!fileInput.files[0]) {
+        alert("No file selected.");
+        return;
+    }
+    if(!outDir) {
+        alert("Output directory is required.");
+        return;
+    }
+    if(outFilename && !outFilename.includes(".")) {
+        outFilename += "." + format;
+    }
+
+    const formData = new FormData();
+    formData.append('input_file', fileInput.files[0]);
+    formData.append('format', format);
+    formData.append('output_dir', outDir);
+    formData.append('output_filename', outFilename);
+
+    try {
+        const resp = await fetch('/convert', { method: 'POST', body: formData });
+        const data = await resp.json();
+        console.log("Convert start response:", data);
+
+        if(data.job_id) {
+            currentJobId = data.job_id;
+            document.getElementById('progressSection').style.display = 'block';
+            intervalId = setInterval(pollProgress, 1000);
+        } else {
+            alert(data.message || "Error starting conversion.");
+        }
+    } catch(err) {
+        alert("Error calling /convert: " + err);
+    }
+});
+</script>
 </body>
 </html>
 """
 
-def get_duration(input_path):
-    """Get video duration in seconds using ffprobe."""
+###############################
+# SERVER-SIDE LOGIC
+###############################
+def get_duration(path):
+    """Get total duration in seconds using ffprobe."""
     cmd = [
-        "ffprobe", 
-        "-v", "error", 
-        "-show_entries", "format=duration", 
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
-        input_path
+        path
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if result.returncode == 0 and result.stdout.strip():
-        return float(result.stdout.strip())
-    return None
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return float(proc.stdout.strip())
+    except:
+        pass
+    return 0.0  # fallback if something goes wrong
 
-def run_ffmpeg(job_id, input_path, bitrate, output_path, total_duration):
-    # Run ffmpeg with progress
-    # -progress pipe:1 outputs progress info to stdout
-    # -nostats avoids clutter
-    command = [
+app = Flask(__name__)
+app.secret_key = "your_secret_key_here"
+
+jobs = {}  # job_id -> {status, progress, message}
+TEMP_FOLDER = os.path.join(os.path.dirname(__file__), "temp")
+os.makedirs(TEMP_FOLDER, exist_ok=True)
+
+def cleanup_temp_folder():
+    """Remove the entire temp folder after each job, then recreate."""
+    if os.path.exists(TEMP_FOLDER):
+        shutil.rmtree(TEMP_FOLDER, ignore_errors=True)
+    os.makedirs(TEMP_FOLDER, exist_ok=True)
+
+def run_ffmpeg_generic(job_id, command, total_duration):
+    """Run ffmpeg with `-y` to avoid overwrite prompts. 
+       Parse out_time_ms= lines to track progress.
+       On completion, remove the temp folder so no leftover files remain.
+    """
+    # Insert '-y' so it won't ask to overwrite
+    # e.g. cmd = ["ffmpeg", "-i", <input>, "-b:v", ... , "-y", out_path]
+    # We'll place '-y' just before the output path for simplicity
+    # Make sure the last item is the actual output file, so we do this carefully:
+    if len(command) >= 3:
+        output_index = len(command) - 1
+        output_file = command[output_index]
+        command.insert(output_index, "-y")
+
+    # Log the exact ffmpeg command in the terminal for debugging
+    print(f"[DEBUG] Starting FFmpeg command: {' '.join(command)}")
+
+    jobs[job_id]["status"] = "running"
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    try:
+        for line in p.stdout:
+            line = line.strip()
+            # Optional debug
+            #print("[FFmpeg]", line)
+            if "out_time_ms=" in line:
+                out_ms = float(line.split("=")[1])
+                curr_sec = out_ms / 1_000_000.0
+                if total_duration > 0:
+                    pct = (curr_sec / total_duration) * 100
+                    pct = min(max(pct, 0), 100)
+                    jobs[job_id]["progress"] = pct
+        p.wait()
+    except Exception as e:
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["message"] = f"An exception occurred: {str(e)}"
+        print("[DEBUG] Exception in run_ffmpeg_generic:", e)
+        cleanup_temp_folder()
+        return
+
+    # After finishing, remove the entire temp folder
+    cleanup_temp_folder()
+
+    if p.returncode == 0:
+        jobs[job_id]["status"] = "done"
+        jobs[job_id]["progress"] = 100.0
+        jobs[job_id]["message"] = "Operation completed successfully!"
+    else:
+        jobs[job_id]["status"] = "error"
+        # We'll show the last lines from FFmpeg in the message for debugging
+        jobs[job_id]["message"] = "FFmpeg failed. Please check your settings or paths."
+
+def run_ffmpeg_compress(job_id, in_path, bitrate, out_path, duration):
+    cmd = [
         "ffmpeg",
-        "-i", input_path,
+        "-i", in_path,
         "-b:v", bitrate,
         "-progress", "pipe:1",
         "-nostats",
-        output_path
+        out_path
     ]
+    run_ffmpeg_generic(job_id, cmd, duration)
 
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+def run_ffmpeg_convert(job_id, in_path, fmt, out_path, duration):
+    cmd = [
+        "ffmpeg",
+        "-i", in_path,
+        "-b:v", "2000k",
+        "-progress", "pipe:1",
+        "-nostats",
+        out_path
+    ]
+    run_ffmpeg_generic(job_id, cmd, duration)
 
-    # Parse progress lines
-    # ffmpeg -progress format gives lines like:
-    # out_time_ms=...
-    # When finished, we exit loop.
-    try:
-        for line in process.stdout:
-            line = line.strip()
-            if "out_time_ms=" in line:
-                out_time_ms = float(line.split('=')[1])
-                current_seconds = out_time_ms / 1_000_000.0
-                if total_duration and total_duration > 0:
-                    pct = (current_seconds / total_duration) * 100
-                    pct = min(max(pct, 0), 100)
-                    jobs[job_id]["progress"] = pct
-        process.wait()
-    except Exception as e:
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["message"] = f"An error occurred: {str(e)}"
-        return
+from flask import render_template_string, jsonify, request
+from werkzeug.utils import secure_filename
 
-    # After done, check return code
-    if process.returncode == 0:
-        jobs[job_id]["status"] = "done"
-        jobs[job_id]["progress"] = 100.0
-        jobs[job_id]["message"] = "Compression completed successfully!"
-    else:
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["message"] = "Compression failed. Please check your settings and try again."
-
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
-    if request.method == "POST":
-        if 'input_file' not in request.files:
-            return jsonify(message="No file selected.")
+    return render_template_string(HTML_TEMPLATE)
 
-        file = request.files['input_file']
-        if file.filename == '':
-            return jsonify(message="No file selected.")
+@app.route("/estimate", methods=["POST"])
+def estimate():
+    """Calculate approximate file size from user-chosen bitrate * duration."""
+    if "input_file" not in request.files:
+        return jsonify(message="No file selected.")
+    f = request.files["input_file"]
+    if not f or f.filename == "":
+        return jsonify(message="No file selected.")
 
-        bitrate = request.form.get("bitrate", "").strip()
-        output_dir = request.form.get("output_dir", "").strip()
-        output_filename = request.form.get("output_filename", "").strip()
-        custom_output_file = request.form.get("output_file", "").strip()
+    bitrate = request.form.get("bitrate", "").strip()
+    if not bitrate:
+        return jsonify(message="Bitrate is required.")
 
-        if not bitrate:
-            return jsonify(message="Bitrate is required.")
+    # Save input to a temp file
+    in_name = secure_filename(f.filename)
+    in_path = os.path.join(TEMP_FOLDER, in_name)
+    f.save(in_path)
 
-        # Save uploaded file temporarily
-        input_filename = secure_filename(file.filename)
-        input_path = os.path.join(UPLOAD_FOLDER, input_filename)
-        file.save(input_path)
+    duration = get_duration(in_path)
 
-        # Determine output path
-        if custom_output_file:
-            final_output_path = custom_output_file
-        else:
-            if not output_dir:
-                output_dir = DEFAULT_OUTPUT_DIR
-            if not output_filename:
-                output_filename = DEFAULT_OUTPUT_FILENAME
-            final_output_path = os.path.join(output_dir, output_filename)
+    def parse_bps(s):
+        s = s.lower().strip()
+        if s.endswith("k"):
+            return float(s[:-1]) * 1_000
+        if s.endswith("m"):
+            return float(s[:-1]) * 1_000_000
+        return float(s)
 
-        # Ensure the output directory exists
-        os.makedirs(os.path.dirname(final_output_path), exist_ok=True)
+    try:
+        bps = parse_bps(bitrate)
+    except ValueError:
+        os.remove(in_path)
+        return jsonify(message="Invalid bitrate format (e.g. 1000k, 1M).")
 
-        # Get total duration for progress calculation
-        duration = get_duration(input_path)
-        if duration is None:
-            # If we can't get duration, we can still attempt compression, but progress might be unreliable
-            duration = 0
+    est_mb = 0.0
+    if duration > 0 and bps > 0:
+        size_bytes = (bps * duration) / 8.0
+        est_mb = size_bytes / (1024.0 * 1024.0)
 
-        job_id = str(uuid.uuid4())
-        jobs[job_id] = {
-            "status": "running",
-            "progress": 0.0,
-            "message": ""
-        }
+    os.remove(in_path)
+    return jsonify(estimated_size_mb=est_mb)
 
-        # Start ffmpeg in a separate thread
-        t = threading.Thread(target=run_ffmpeg, args=(job_id, input_path, bitrate, final_output_path, duration), daemon=True)
-        t.start()
+@app.route("/compress", methods=["POST"])
+def compress():
+    """Handle the compression job."""
+    if "input_file" not in request.files:
+        return jsonify(message="No file selected.")
+    f = request.files["input_file"]
+    if not f or f.filename == "":
+        return jsonify(message="No file selected.")
 
-        # Return job_id immediately so front-end can start polling
-        return jsonify(job_id=job_id)
+    bitrate = request.form.get("bitrate", "").strip()
+    if not bitrate:
+        return jsonify(message="Bitrate is required.")
+
+    out_dir = request.form.get("output_dir", "").strip()
+    if not out_dir:
+        return jsonify(message="Output directory is required.")
+
+    out_fname = request.form.get("output_filename", "").strip()
+    if not out_fname:
+        out_fname = DEFAULT_OUTPUT_FILENAME
+
+    in_name = secure_filename(f.filename)
+    in_path = os.path.join(TEMP_FOLDER, in_name)
+    f.save(in_path)
+
+    final_path = os.path.join(out_dir, out_fname)
+    duration = get_duration(in_path)
+
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "running", "progress": 0.0, "message": ""}
+
+    t = threading.Thread(
+        target=run_ffmpeg_compress,
+        args=(job_id, in_path, bitrate, final_path, duration),
+        daemon=True
+    )
+    t.start()
+
+    return jsonify(job_id=job_id)
+
+@app.route("/convert", methods=["POST"])
+def convert():
+    """Handle format conversion job."""
+    if "input_file" not in request.files:
+        return jsonify(message="No file selected.")
+    f = request.files["input_file"]
+    if not f or f.filename == "":
+        return jsonify(message="No file selected.")
+
+    fmt = request.form.get("format", "mp4").lower().strip()
+    out_dir = request.form.get("output_dir", "").strip()
+    if not out_dir:
+        return jsonify(message="Output directory is required.")
+
+    out_name = request.form.get("output_filename", "").strip()
+    in_name = secure_filename(f.filename)
+    in_path = os.path.join(TEMP_FOLDER, in_name)
+    f.save(in_path)
+
+    if not out_name:
+        base, _ = os.path.splitext(in_name)
+        out_name = base + "." + fmt
     else:
-        return render_template_string(
-            HTML_TEMPLATE,
-            default_output_dir=DEFAULT_OUTPUT_DIR,
-            default_output_filename=DEFAULT_OUTPUT_FILENAME
-        )
+        if "." not in out_name:
+            out_name += "." + fmt
+
+    final_path = os.path.join(out_dir, out_name)
+    if not final_path.endswith(f".{fmt}"):
+        final_path += f".{fmt}"
+
+    duration = get_duration(in_path)
+
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "running", "progress": 0.0, "message": ""}
+
+    t = threading.Thread(
+        target=run_ffmpeg_convert,
+        args=(job_id, in_path, fmt, final_path, duration),
+        daemon=True
+    )
+    t.start()
+
+    return jsonify(job_id=job_id)
 
 @app.route("/progress/<job_id>")
 def progress(job_id):
+    """Poll the job's status & progress. Return JSON."""
     job = jobs.get(job_id)
     if not job:
         return jsonify(status="error", message="Invalid job ID.")
@@ -382,14 +700,15 @@ def progress(job_id):
     if job["status"] == "running":
         return jsonify(status="running", progress=int(job["progress"]))
     else:
-        # Job done or error
-        msg = job.get("message", "")
-        return jsonify(status=job["status"], progress=int(job["progress"]), message=msg)
+        return jsonify(
+            status=job["status"],
+            progress=int(job["progress"]),
+            message=job["message"]
+        )
 
 def open_browser():
     webbrowser.open("http://127.0.0.1:5000")
 
 if __name__ == "__main__":
-    # Open browser after a short delay
     Timer(1.0, open_browser).start()
     app.run(host="127.0.0.1", port=5000, debug=False)
