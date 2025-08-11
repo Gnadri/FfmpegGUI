@@ -481,61 +481,50 @@ def cleanup_temp_folder():
     """Remove the entire temp folder after each job, then recreate."""
     if os.path.exists(TEMP_FOLDER):
         shutil.rmtree(TEMP_FOLDER, ignore_errors=True)
-    os.makedirs(TEMP_FOLDER, exist_ok=True)
+    os.makedirs(TEMP_FOLDER, exist_ok=True) 
 
-def run_ffmpeg_generic(job_id, command, total_duration):
-    """Run ffmpeg with `-y` to avoid overwrite prompts. 
-       Parse out_time_ms= lines to track progress.
-       On completion, remove the temp folder so no leftover files remain.
-    """
-    # Insert '-y' so it won't ask to overwrite
-    # e.g. cmd = ["ffmpeg", "-i", <input>, "-b:v", ... , "-y", out_path]
-    # We'll place '-y' just before the output path for simplicity
-    # Make sure the last item is the actual output file, so we do this carefully:
+def run_ffmpeg_generic(job_id, command, total_duration, cleanup=True):
     if len(command) >= 3:
-        output_index = len(command) - 1
-        output_file = command[output_index]
-        command.insert(output_index, "-y")
+        out_idx = len(command) - 1
+        command.insert(out_idx, "-y")
 
-    # Log the exact ffmpeg command in the terminal for debugging
     print(f"[DEBUG] Starting FFmpeg command: {' '.join(command)}")
 
-    jobs[job_id]["status"] = "running"
+    JOBS[job_id]["status"] = "running"
     p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     try:
-        for line in p.stdout:
-            line = line.strip()
-            # Optional debug
-            #print("[FFmpeg]", line)
-            if "out_time_ms=" in line:
-                out_ms = float(line.split("=")[1])
-                curr_sec = out_ms / 1_000_000.0
-                if total_duration > 0:
-                    pct = (curr_sec / total_duration) * 100
-                    pct = min(max(pct, 0), 100)
-                    jobs[job_id]["progress"] = pct
+        for raw in p.stdout:
+            line = raw.strip()
+            if line.startswith("out_time_ms="):
+                try:
+                    out_ms = float(line.split("=", 1)[1])
+                    if total_duration > 0:
+                        pct = min(max((out_ms / 1_000_000.0) / total_duration * 100, 0), 100)
+                        JOBS[job_id]["progress"] = pct
+                except ValueError:
+                    pass
         p.wait()
     except Exception as e:
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["message"] = f"An exception occurred: {str(e)}"
-        print("[DEBUG] Exception in run_ffmpeg_generic:", e)
-        cleanup_temp_folder()
+        JOBS[job_id]["status"] = "error"
+        JOBS[job_id]["message"] = f"An exception occurred: {e}"
+        if cleanup:
+            cleanup_job_folder(job_id)
         return
 
-    # After finishing, remove the entire temp folder
-    cleanup_temp_folder()
+    if cleanup:
+        cleanup_job_folder(job_id)
 
     if p.returncode == 0:
-        jobs[job_id]["status"] = "done"
-        jobs[job_id]["progress"] = 100.0
-        jobs[job_id]["message"] = "Operation completed successfully!"
+        JOBS[job_id]["status"] = "done"
+        JOBS[job_id]["progress"] = 100.0
+        JOBS[job_id]["message"] = "Operation completed successfully!"
     else:
-        jobs[job_id]["status"] = "error"
-        # We'll show the last lines from FFmpeg in the message for debugging
-        jobs[job_id]["message"] = "FFmpeg failed. Please check your settings or paths."
+        JOBS[job_id]["status"] = "error"
+        JOBS[job_id]["message"] = "FFmpeg failed. Please check your settings or paths."
 
 def run_ffmpeg_compress(job_id, in_path, bitrate, out_path, duration):
+
     cmd = [
         "ffmpeg",
         "-i", in_path,
