@@ -20,6 +20,15 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Keep track of ffmpeg jobs by job_id
 jobs = {}
 
+# Make the names consistent with the code below
+TEMP_FOLDER = UPLOAD_FOLDER
+
+def cleanup_temp_folder():
+    """Remove the entire temp folder after each job, then recreate."""
+    if os.path.exists(TEMP_FOLDER):
+        shutil.rmtree(TEMP_FOLDER, ignore_errors=True)
+    os.makedirs(TEMP_FOLDER, exist_ok=True)
+
 # Default output filename if user leaves it blank
 DEFAULT_OUTPUT_FILENAME = "output.mp4"
 
@@ -470,27 +479,26 @@ def get_duration(path):
         pass
     return 0.0  # fallback if something goes wrong
 
-app = Flask(__name__)
-app.secret_key = "your_secret_key_here"
-
-jobs = {}  # job_id -> {status, progress, message}
-TEMP_FOLDER = os.path.join(os.path.dirname(__file__), "temp")
-os.makedirs(TEMP_FOLDER, exist_ok=True)
-
+# Provide the cleanup function used by run_ffmpeg_generic()
 def cleanup_temp_folder():
     """Remove the entire temp folder after each job, then recreate."""
     if os.path.exists(TEMP_FOLDER):
         shutil.rmtree(TEMP_FOLDER, ignore_errors=True)
-    os.makedirs(TEMP_FOLDER, exist_ok=True) 
+    os.makedirs(TEMP_FOLDER, exist_ok=True)
 
-def run_ffmpeg_generic(job_id, command, total_duration, cleanup=True):
+def run_ffmpeg_generic(job_id, command, total_duration):
+    """Run ffmpeg with `-y` to avoid overwrite prompts.
+       Parse out_time_ms= lines to track progress.
+       On completion, remove the temp folder so no leftover files remain.
+    """
+    # Ensure -y appears before the output path
     if len(command) >= 3:
         out_idx = len(command) - 1
         command.insert(out_idx, "-y")
 
     print(f"[DEBUG] Starting FFmpeg command: {' '.join(command)}")
 
-    JOBS[job_id]["status"] = "running"
+    jobs[job_id]["status"] = "running"
     p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     try:
@@ -501,30 +509,28 @@ def run_ffmpeg_generic(job_id, command, total_duration, cleanup=True):
                     out_ms = float(line.split("=", 1)[1])
                     if total_duration > 0:
                         pct = min(max((out_ms / 1_000_000.0) / total_duration * 100, 0), 100)
-                        JOBS[job_id]["progress"] = pct
+                        jobs[job_id]["progress"] = pct
                 except ValueError:
                     pass
         p.wait()
     except Exception as e:
-        JOBS[job_id]["status"] = "error"
-        JOBS[job_id]["message"] = f"An exception occurred: {e}"
-        if cleanup:
-            cleanup_job_folder(job_id)
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["message"] = f"An exception occurred: {e}"
+        cleanup_temp_folder()
         return
 
-    if cleanup:
-        cleanup_job_folder(job_id)
+    # After finishing, remove the entire temp folder
+    cleanup_temp_folder()
 
     if p.returncode == 0:
-        JOBS[job_id]["status"] = "done"
-        JOBS[job_id]["progress"] = 100.0
-        JOBS[job_id]["message"] = "Operation completed successfully!"
+        jobs[job_id]["status"] = "done"
+        jobs[job_id]["progress"] = 100.0
+        jobs[job_id]["message"] = "Operation completed successfully!"
     else:
-        JOBS[job_id]["status"] = "error"
-        JOBS[job_id]["message"] = "FFmpeg failed. Please check your settings or paths."
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["message"] = "FFmpeg failed. Please check your settings or paths."
 
 def run_ffmpeg_compress(job_id, in_path, bitrate, out_path, duration):
-
     cmd = [
         "ffmpeg",
         "-i", in_path,
@@ -584,7 +590,10 @@ def estimate():
     try:
         bps = parse_bps(bitrate)
     except ValueError:
-        os.remove(in_path)
+        try:
+            os.remove(in_path)
+        except FileNotFoundError:
+            pass
         return jsonify(message="Invalid bitrate format (e.g. 1000k, 1M).")
 
     est_mb = 0.0
@@ -592,7 +601,10 @@ def estimate():
         size_bytes = (bps * duration) / 8.0
         est_mb = size_bytes / (1024.0 * 1024.0)
 
-    os.remove(in_path)
+    try:
+        os.remove(in_path)
+    except FileNotFoundError:
+        pass
     return jsonify(estimated_size_mb=est_mb)
 
 @app.route("/compress", methods=["POST"])
@@ -611,10 +623,9 @@ def compress():
     out_dir = request.form.get("output_dir", "").strip()
     if not out_dir:
         return jsonify(message="Output directory is required.")
+    os.makedirs(out_dir, exist_ok=True)
 
-    out_fname = request.form.get("output_filename", "").strip()
-    if not out_fname:
-        out_fname = DEFAULT_OUTPUT_FILENAME
+    out_fname = request.form.get("output_filename", "").strip() or DEFAULT_OUTPUT_FILENAME
 
     in_name = secure_filename(f.filename)
     in_path = os.path.join(TEMP_FOLDER, in_name)
@@ -648,6 +659,7 @@ def convert():
     out_dir = request.form.get("output_dir", "").strip()
     if not out_dir:
         return jsonify(message="Output directory is required.")
+    os.makedirs(out_dir, exist_ok=True)
 
     out_name = request.form.get("output_filename", "").strip()
     in_name = secure_filename(f.filename)
