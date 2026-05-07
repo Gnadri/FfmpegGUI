@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FFmpeg Compressor</title>
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="vendor/ffmpeg/ffmpeg.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>FFmpeg Compressor</h1>
+          <div class="subtitle">Local media workbench</div>
+        </div>
+        <div class="job-pill" aria-live="polite">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">No job running</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="FFmpeg tools">
+        <section class="panel controls">
+          <div class="tabs" role="tablist" aria-label="Tool mode">
+            <button class="tab active" id="compressTab" type="button" role="tab" aria-selected="true" aria-controls="compressPanel">Compression</button>
+            <button class="tab" id="convertTab" type="button" role="tab" aria-selected="false" aria-controls="convertPanel">Convert</button>
+          </div>
+
+          <form id="compressPanel" class="tool-panel active" aria-labelledby="compressTab">
+            <label class="field">
+              <span>Input File</span>
+              <input id="compressFile" type="file" accept="video/*,audio/*,.avi,.mkv,.mov,.mp4,.webm,.wmv,.flv,.gif" required>
+            </label>
+            <div class="file-meta" id="compressFileMeta">No file selected</div>
+
+            <label class="field">
+              <span>Video Bitrate</span>
+              <input id="bitrate" type="text" inputmode="text" value="1000k" placeholder="1000k" required>
+            </label>
+
+            <div class="field">
+              <label for="targetSize">Target File Size</label>
+              <div class="target-row">
+                <input id="targetSize" type="number" inputmode="decimal" min="1" step="1" placeholder="e.g. 25">
+                <select id="targetSizeUnit" aria-label="Target file size unit">
+                  <option value="mb">MB</option>
+                  <option value="gb">GB</option>
+                </select>
+              </div>
+              <output id="targetSizeOutput" class="target-output" aria-live="polite"></output>
+            </div>
+
+            <label class="field">
+              <span>Output Filename</span>
+              <input id="compressOutputName" type="text" placeholder="output.mp4">
+            </label>
+
+            <div class="actions">
+              <button id="estimateBtn" class="secondary" type="button">Estimate Size</button>
+              <button class="primary" type="submit">Compress</button>
+            </div>
+            <output id="estimateOutput" class="estimate" aria-live="polite"></output>
+          </form>
+
+          <form id="convertPanel" class="tool-panel" aria-labelledby="convertTab" hidden>
+            <label class="field">
+              <span>Input File</span>
+              <input id="convertFile" type="file" accept="video/*,audio/*,.avi,.mkv,.mov,.mp4,.webm,.wmv,.flv,.gif" required>
+            </label>
+            <div class="file-meta" id="convertFileMeta">No file selected</div>
+
+            <label class="field">
+              <span>Output Format</span>
+              <select id="convertFormat">
+                <option value="mp4">MP4</option>
+                <option value="webm">WEBM</option>
+                <option value="avi">AVI</option>
+                <option value="mov">MOV</option>
+                <option value="gif">GIF</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Output Filename</span>
+              <input id="convertOutputName" type="text" placeholder="Use original name">
+            </label>
+
+            <div class="actions">
+              <button class="primary" type="submit">Convert</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel status">
+          <div class="status-head">
+            <div>
+              <h2 id="jobTitle">Waiting for a file</h2>
+              <div id="jobDetail" class="job-detail">Choose a file to begin.</div>
+            </div>
+            <button id="cancelBtn" class="danger" type="button" disabled>Stop</button>
+          </div>
+
+          <div class="progress-shell" aria-label="Progress">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <div class="progress-row">
+            <span id="progressLabel">0%</span>
+            <span id="elapsedLabel">00:00</span>
+          </div>
+
+          <dl class="stats">
+            <div>
+              <dt>Input</dt>
+              <dd id="inputStat">-</dd>
+            </div>
+            <div>
+              <dt>Output</dt>
+              <dd id="outputStat">-</dd>
+            </div>
+            <div>
+              <dt>Video Engine</dt>
+              <div class="engine-status-row">
+                <dd id="engineStat">Setup required</dd>
+                <button id="engineHelpBtn" class="inline-help" type="button" aria-label="Open FFmpeg setup guide" title="Open FFmpeg setup guide" hidden>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 21h6v-2H9v2Zm3-20a7 7 0 0 0-4 12.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-3.26A7 7 0 0 0 12 1Zm2.67 11.26-.67.41V16h-4v-3.33l-.67-.41A5 5 0 1 1 14.67 12.26Z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </dl>
+
+          <pre id="logOutput" class="log" aria-label="FFmpeg log"></pre>
+        </section>
+      </section>
+      <a class="guide-fab" href="install-guide.html" aria-label="Open FFmpeg install guide" title="Open FFmpeg install guide">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 21h6v-2H9v2Zm3-20a7 7 0 0 0-4 12.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-3.26A7 7 0 0 0 12 1Zm2.67 11.26-.67.41V16h-4v-3.33l-.67-.41A5 5 0 1 1 14.67 12.26Z"/>
+        </svg>
+      </a>
+    </main>
+  </body>
+</html>
