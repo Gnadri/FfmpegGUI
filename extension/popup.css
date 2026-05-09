@@ -1,0 +1,263 @@
+:root {
+  color-scheme: dark;
+  --bg: #10110f;
+  --surface: #181a17;
+  --surface-2: #20231f;
+  --field: #11130f;
+  --text: #f3f0e7;
+  --text-strong: #fffaf0;
+  --muted: #a6aea4;
+  --muted-2: #7f8a82;
+  --line: #343a33;
+  --line-strong: #485047;
+  --accent: #48c79a;
+  --accent-strong: #79ddb9;
+  --accent-soft: #17382d;
+  --warn: #d49a42;
+  --danger: #e06b5f;
+  --danger-soft: #3a1e1b;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 390px;
+  min-height: 560px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+}
+
+.popup-shell {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.popup-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h1 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.engine,
+.hint,
+#fileMeta {
+  color: var(--muted);
+}
+
+.engine.ready {
+  color: var(--accent-strong);
+  font-weight: 750;
+}
+
+.engine.error,
+.hint.error {
+  color: #ffd8d4;
+}
+
+.engine.busy,
+.hint.warn {
+  color: #f0c47c;
+}
+
+.full-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(72, 199, 154, 0.34);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  padding: 0 10px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.drop-zone {
+  min-height: 126px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: #18231d;
+}
+
+.drop-zone strong,
+.drop-zone span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.drop-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.drop-icon svg {
+  width: 26px;
+  height: 26px;
+  fill: currentColor;
+}
+
+.fields {
+  display: grid;
+  gap: 9px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--text);
+  padding: 7px 9px;
+}
+
+.field input:focus,
+.field select:focus,
+button:focus-visible,
+.drop-zone:focus-visible {
+  outline: 3px solid rgba(72, 199, 154, 0.2);
+  border-color: var(--accent);
+}
+
+.target-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 8px;
+}
+
+.hint {
+  min-height: 18px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.status-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.progress-shell {
+  width: 100%;
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--field);
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 86px;
+  gap: 10px;
+}
+
+.primary,
+.danger {
+  min-height: 38px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.primary {
+  color: #082019;
+  background: var(--accent);
+}
+
+.primary:hover {
+  background: var(--accent-strong);
+}
+
+.danger {
+  color: #ffd8d4;
+  border: 1px solid rgba(224, 107, 95, 0.42);
+  background: var(--danger-soft);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.log {
+  min-height: 92px;
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #0b0d0b;
+  color: #d8e4dc;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}

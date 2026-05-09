@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FFmpeg Compressor Popup</title>
+    <link rel="stylesheet" href="popup.css">
+    <script defer src="vendor/ffmpeg/ffmpeg.js"></script>
+    <script defer src="popup.js"></script>
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <div>
+          <h1>Compressor</h1>
+          <div id="engineText" class="engine ready">Ready</div>
+        </div>
+        <a class="full-link" href="app.html" target="_blank" rel="noreferrer">Full app</a>
+      </header>
+
+      <section id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="Drop a video file or choose one">
+        <input id="fileInput" type="file" accept="video/*,audio/*,.avi,.mkv,.mov,.mp4,.webm,.wmv,.flv,.gif" hidden>
+        <div class="drop-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M11 16V7.85L8.4 10.45 7 9l5-5 5 5-1.4 1.45L13 7.85V16h-2Zm-5 4c-.55 0-1.02-.2-1.41-.59A1.92 1.92 0 0 1 4 18v-3h2v3h12v-3h2v3c0 .55-.2 1.02-.59 1.41-.39.39-.86.59-1.41.59H6Z"/>
+          </svg>
+        </div>
+        <div>
+          <strong id="fileName">Drop video here</strong>
+          <span id="fileMeta">or click to choose a file</span>
+        </div>
+      </section>
+
+      <section class="fields" aria-label="Compression settings">
+        <label class="field">
+          <span>Target Size</span>
+          <div class="target-row">
+            <input id="targetSize" type="number" inputmode="decimal" min="1" step="1" placeholder="25">
+            <select id="targetUnit" aria-label="Target size unit">
+              <option value="mb">MB</option>
+              <option value="gb">GB</option>
+            </select>
+          </div>
+        </label>
+        <output id="targetOutput" class="hint" aria-live="polite"></output>
+
+        <label class="field">
+          <span>Video Bitrate</span>
+          <input id="bitrate" type="text" value="1000k" placeholder="1000k">
+        </label>
+
+        <label class="field">
+          <span>Output Name</span>
+          <input id="outputName" type="text" placeholder="output.mp4">
+        </label>
+      </section>
+
+      <section class="status-panel">
+        <div class="status-row">
+          <span id="statusText">No job running</span>
+          <span id="progressLabel">0%</span>
+        </div>
+        <div class="progress-shell" aria-label="Compression progress">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button id="compressBtn" class="primary" type="button">Compress</button>
+        <button id="stopBtn" class="danger" type="button" disabled>Stop</button>
+      </div>
+
+      <pre id="logOutput" class="log" aria-label="FFmpeg log"></pre>
+    </main>
+  </body>
+</html>
